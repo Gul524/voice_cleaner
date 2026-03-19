@@ -1,5 +1,4 @@
-import 'package:flutter/material.dart';
-import 'package:voice_cleaner/configs/theme.dart';
+import 'package:voice_cleaner/exports.dart';
 
 void main() {
   runApp(const MainApp());
@@ -14,7 +13,8 @@ class MainApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
-      home: Scaffold(body: Center(child: Text('Hello World!'))),
+      initialRoute: AppRoutes.splash,
+      onGenerateRoute: AppRoutes.generateRoute,
     );
   }
 }
