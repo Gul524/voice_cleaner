@@ -67,10 +67,13 @@ class _SplashScreenState extends State<SplashScreen>
                 scale: _scaleAnimation,
                 child: FadeTransition(
                   opacity: _opacityAnimation,
-                  child: Image.asset(AppImages.logo, width: 100, height: 100),
+                  child: Image.asset(
+                    AppImages.logoWithoutBG,
+                    width: 200,
+                    height: 200,
+                  ),
                 ),
               ),
-              const SizedBox(height: 24),
               Text(
                 'pure voice',
                 style: Theme.of(context).textTheme.headlineLarge?.copyWith(

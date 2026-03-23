@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:voice_cleaner/features/splash/splash_screen.dart';
 import 'package:voice_cleaner/features/home/home_screen.dart';
+import 'package:voice_cleaner/features/player/player_screen.dart';
+import 'package:voice_cleaner/features/recording/recording_screen.dart';
 
 class AppRoutes {
   AppRoutes._();
 
   static const String splash = '/';
   static const String home = '/home';
+  static const String recording = '/recording';
+  static const String player = '/player';
 
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
@@ -14,6 +18,13 @@ class AppRoutes {
         return MaterialPageRoute(builder: (_) => const SplashScreen());
       case home:
         return MaterialPageRoute(builder: (_) => const HomeScreen());
+      case recording:
+        return MaterialPageRoute(builder: (_) => const RecordingScreen());
+      case player:
+        final sourceAudioPath = settings.arguments as String? ?? '';
+        return MaterialPageRoute(
+          builder: (_) => PlayerScreen(sourceAudioPath: sourceAudioPath),
+        );
       default:
         return MaterialPageRoute(
           builder: (_) => Scaffold(
