@@ -27,6 +27,68 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.dispose();
   }
 
+  Future<void> _showErrorIfAny() async {
+    if (!mounted || _controller.errorMessage == null) {
+      return;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(_controller.errorMessage!)));
+  }
+
+  Future<void> _saveGeneratedAudio() async {
+    final generatedPath = _controller.generatedAudio;
+    if (generatedPath == null || generatedPath.trim().isEmpty) {
+      return;
+    }
+
+    final defaultName =
+        'clean_${DateTime.now().millisecondsSinceEpoch.toString()}';
+    final nameController = TextEditingController(text: defaultName);
+
+    final fileName = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Save Clean Audio'),
+          content: TextField(
+            controller: nameController,
+            decoration: const InputDecoration(labelText: 'File name'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(nameController.text),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || fileName == null || fileName.trim().isEmpty) {
+      return;
+    }
+
+    try {
+      final savedPath = await _controller.saveGeneratedAudio(
+        fileName: fileName,
+      );
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Saved to: $savedPath')));
+    } catch (_) {
+      await _showErrorIfAny();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -88,18 +150,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           onPressed: _controller.isGenerating
                               ? null
                               : () async {
-                                  final scaffoldMessenger =
-                                      ScaffoldMessenger.of(context);
                                   await _controller.generateAudio();
-                                  if (_controller.errorMessage != null) {
-                                    scaffoldMessenger.showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          _controller.errorMessage!,
-                                        ),
-                                      ),
-                                    );
-                                  }
+                                  await _showErrorIfAny();
                                 },
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
@@ -126,15 +178,69 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         ),
                       )
                     else
-                      _buildPreviewCard(
-                        isDark: isDark,
-                        title: 'Generated Audio',
-                        subtitle: _controller.generatedAudio!.split('/').last,
-                        audioPath: _controller.generatedAudio!,
+                      Column(
+                        children: [
+                          _buildPreviewCard(
+                            isDark: isDark,
+                            title: 'Generated Audio',
+                            subtitle: _controller.generatedAudio!
+                                .split('/')
+                                .last,
+                            audioPath: _controller.generatedAudio!,
+                          ),
+                          const SizedBox(height: 12),                        
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: _controller.isGenerating
+                                      ? null
+                                      : () async {
+                                          await _controller.cleanAgain();
+                                          await _showErrorIfAny();
+                                        },
+                                  child: _controller.isGenerating
+                                      ? const SizedBox(
+                                          height: 20,
+                                          width: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Text('Clean Again'),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: ElevatedButton(
+                                  onPressed: _controller.isSaving
+                                      ? null
+                                      : _saveGeneratedAudio,
+                                  child: _controller.isSaving
+                                      ? const SizedBox(
+                                          height: 20,
+                                          width: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : Text(
+                                          'Save',
+                                          style: TextStyle(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurface,
+                                          ),
+                                        ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                    const Spacer(),
-                    Icon(Icons.graphic_eq, color: AppTheme.primary, size: 90),
-                    const SizedBox(height: 24),
+                    // const Spacer(),
+                    // Icon(Icons.graphic_eq, color: AppTheme.primary, size: 90),
+                    // const SizedBox(height: 24),
                   ],
                 ),
               );
@@ -194,7 +300,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ],
           ),
           const SizedBox(height: 12),
-          AudioWavePlayer(music: audioPath),
+          AudioWavePlayer(key: ValueKey(audioPath), music: audioPath),
         ],
       ),
     );

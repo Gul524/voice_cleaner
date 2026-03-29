@@ -75,6 +75,7 @@ class HomeController extends ChangeNotifier {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
+        withData: true,
         allowedExtensions: ['wav', 'mp3', 'm4a', 'aac', 'flac', 'ogg'],
       );
 
@@ -82,10 +83,8 @@ class HomeController extends ChangeNotifier {
         return;
       }
 
-      final selectedPath = result.files.single.path;
-      if (selectedPath == null || selectedPath.trim().isEmpty) {
-        throw Exception('Invalid selected file path');
-      }
+      final pickedFile = result.files.single;
+      final selectedPath = await _resolvePickedFilePath(pickedFile);
 
       errorMessage = null;
       currentPickedFile = selectedPath;
@@ -106,5 +105,38 @@ class HomeController extends ChangeNotifier {
     }
 
     await navigator.pushNamed(AppRoutes.player, arguments: currentPickedFile);
+  }
+
+  Future<String> _resolvePickedFilePath(PlatformFile pickedFile) async {
+    final directPath = pickedFile.path;
+    if (directPath != null &&
+        directPath.trim().isNotEmpty &&
+        File(directPath).existsSync()) {
+      return directPath;
+    }
+
+    if (pickedFile.bytes == null) {
+      throw Exception('Invalid selected file path');
+    }
+
+    final tempDirectory = await getTemporaryDirectory();
+    final extension = _extensionFromName(pickedFile.name);
+    final generatedPath =
+        '${tempDirectory.path}/picked_${DateTime.now().millisecondsSinceEpoch}.$extension';
+
+    final tempFile = File(generatedPath);
+    await tempFile.writeAsBytes(pickedFile.bytes!, flush: true);
+
+    return tempFile.path;
+  }
+
+  String _extensionFromName(String fileName) {
+    final lower = fileName.toLowerCase();
+    final dotIndex = lower.lastIndexOf('.');
+    if (dotIndex <= 0 || dotIndex == lower.length - 1) {
+      return 'wav';
+    }
+
+    return lower.substring(dotIndex + 1);
   }
 }

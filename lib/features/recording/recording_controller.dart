@@ -1,14 +1,25 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'package:voice_cleaner/services/voice_cleaner_service.dart';
 
 class RecordingController extends ChangeNotifier {
-  RecordingController();
+  RecordingController({VoiceCleanerService? cleanerService})
+    : _cleanerService = cleanerService ?? VoiceCleanerService();
 
   final AudioRecorder _audioRecorder = AudioRecorder();
+  final VoiceCleanerService _cleanerService;
+  final BytesBuilder _cleanedPcmBuffer = BytesBuilder(copy: false);
+
+  StreamSubscription<Uint8List>? _recordStreamSubscription;
+  Future<void> _processingQueue = Future<void>.value();
+  Object? _realtimeProcessingError;
+  static const int _sampleRate = 48000;
+  static const int _numChannels = 1;
 
   String? recordingVoice;
 
@@ -37,19 +48,36 @@ class RecordingController extends ChangeNotifier {
       throw Exception('Microphone permission denied');
     }
 
-    final tempDirectory = await getTemporaryDirectory();
-    final filePath =
-        '${tempDirectory.path}/recording_${DateTime.now().millisecondsSinceEpoch}.wav';
+    await _resetRealtimeState();
 
-    await _audioRecorder.start(
+    final stream = await _audioRecorder.startStream(
       const RecordConfig(
-        encoder: AudioEncoder.wav,
-        sampleRate: 48000,
-        numChannels: 1,
+        encoder: AudioEncoder.pcm16bits,
+        sampleRate: _sampleRate,
+        numChannels: _numChannels,
       ),
-      path: filePath,
     );
-    recordingVoice = filePath;
+
+    _recordStreamSubscription = stream.listen(
+      (chunk) {
+        _processingQueue = _processingQueue
+            .then((_) async {
+              final cleaned = await _cleanerService.cleanRealtimeChunk(
+                pcmChunk: chunk,
+                inputSampleRate: _sampleRate,
+              );
+              _cleanedPcmBuffer.add(cleaned);
+            })
+            .catchError((error) {
+              _realtimeProcessingError ??= error;
+            });
+      },
+      onError: (error) {
+        _realtimeProcessingError ??= error;
+      },
+    );
+
+    recordingVoice = null;
     _isRecording = true;
     _isPaused = false;
     _elapsed = Duration.zero;
@@ -89,11 +117,34 @@ class RecordingController extends ChangeNotifier {
       return recordingVoice;
     }
 
-    final filePath = await _audioRecorder.stop();
+    await _audioRecorder.stop();
+    await _recordStreamSubscription?.cancel();
+    _recordStreamSubscription = null;
+    await _processingQueue;
+
+    if (_realtimeProcessingError != null) {
+      final error = _realtimeProcessingError!;
+      _realtimeProcessingError = null;
+      throw Exception('Realtime cleaning failed: $error');
+    }
+
+    final tempDirectory = await getTemporaryDirectory();
+    final cleanedPcmBytes = _cleanedPcmBuffer.toBytes();
+    if (cleanedPcmBytes.isEmpty) {
+      throw Exception('No cleaned audio data produced from recording.');
+    }
+
+    final filePath = await _cleanerService.saveRealtimeCleanedRecording(
+      cleanedPcm: cleanedPcmBytes,
+      tempDirectoryPath: tempDirectory.path,
+      sampleRate: _sampleRate,
+      numChannels: _numChannels,
+    );
+
     _ticker?.cancel();
     _updateElapsed();
 
-    if (filePath != null && filePath.trim().isNotEmpty) {
+    if (filePath.trim().isNotEmpty) {
       recordingVoice = filePath;
     }
 
@@ -110,7 +161,10 @@ class RecordingController extends ChangeNotifier {
     String? filePath = recordingVoice;
 
     if (_isRecording || _isPaused) {
-      filePath = await _audioRecorder.stop() ?? filePath;
+      await _audioRecorder.stop();
+      await _recordStreamSubscription?.cancel();
+      _recordStreamSubscription = null;
+      await _processingQueue;
     }
 
     _ticker?.cancel();
@@ -127,8 +181,15 @@ class RecordingController extends ChangeNotifier {
       }
     }
 
+    await _resetRealtimeState();
     recordingVoice = null;
     notifyListeners();
+  }
+
+  Future<void> _resetRealtimeState() async {
+    _cleanedPcmBuffer.clear();
+    _processingQueue = Future<void>.value();
+    _realtimeProcessingError = null;
   }
 
   void _startTicker() {
@@ -150,6 +211,7 @@ class RecordingController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _recordStreamSubscription?.cancel();
     _ticker?.cancel();
     unawaited(_audioRecorder.dispose());
     super.dispose();

@@ -64,6 +64,7 @@ class _AudioWavePlayerState extends State<AudioWavePlayer> {
           child: Text(
             _controller.error!,
             style: Theme.of(context).textTheme.bodySmall,
+            textAlign: TextAlign.center,
           ),
         ),
       );
@@ -110,13 +111,13 @@ class _AudioWavePlayerState extends State<AudioWavePlayer> {
         Row(
           children: [
             FilledButton.icon(
-              onPressed: _controller.togglePlayStop,
+              onPressed: _controller.togglePlayPause,
               icon: Icon(
                 _controller.isPlaying
-                    ? Icons.stop_circle_outlined
+                    ? Icons.pause_circle_outline
                     : Icons.play_arrow_rounded,
               ),
-              label: Text(_controller.isPlaying ? 'Stop' : 'Play'),
+              label: Text(_controller.isPlaying ? 'Pause' : 'Play'),
             ),
             const Spacer(),
             Text(
@@ -130,8 +131,12 @@ class _AudioWavePlayerState extends State<AudioWavePlayer> {
   }
 
   String _formatDuration(Duration value) {
+    final hours = value.inHours;
     final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
+    if (hours > 0) {
+      return '${hours.toString().padLeft(2, '0')}:$minutes:$seconds';
+    }
     return '$minutes:$seconds';
   }
 }

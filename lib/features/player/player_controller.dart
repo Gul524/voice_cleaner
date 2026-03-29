@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:voice_cleaner/services/voice_cleaner_service.dart';
 
 class PlayerController extends ChangeNotifier {
@@ -17,8 +20,28 @@ class PlayerController extends ChangeNotifier {
   bool _isGenerating = false;
   bool get isGenerating => _isGenerating;
 
+  bool _isSaving = false;
+  bool get isSaving => _isSaving;
+
   Future<void> generateAudio() async {
-    if (originalAudio.trim().isEmpty) {
+    await _generateFromSource(originalAudio);
+  }
+
+  Future<void> cleanAgain() async {
+    final currentGenerated = generatedAudio;
+    if (currentGenerated == null || currentGenerated.trim().isEmpty) {
+      errorMessage = 'No generated audio available';
+      notifyListeners();
+      return;
+    }
+
+    originalAudio = currentGenerated;
+    notifyListeners();
+    await _generateFromSource(originalAudio);
+  }
+
+  Future<void> _generateFromSource(String sourcePath) async {
+    if (sourcePath.trim().isEmpty) {
       errorMessage = 'Source audio is empty';
       notifyListeners();
       return;
@@ -30,16 +53,69 @@ class PlayerController extends ChangeNotifier {
 
     try {
       generatedAudio = await _cleanerService.cleanAudio(
-        inputAudioPath: originalAudio,
+        inputAudioPath: sourcePath,
       );
       notifyListeners();
     } catch (error) {
-      print('Error during audio generation: $error');
       errorMessage = 'Failed to generate clean audio: $error';
       notifyListeners();
     } finally {
       _isGenerating = false;
       notifyListeners();
     }
+  }
+
+  Future<String> saveGeneratedAudio({required String fileName}) async {
+    final sourcePath = generatedAudio;
+    if (sourcePath == null || sourcePath.trim().isEmpty) {
+      throw Exception('No generated file available to save');
+    }
+
+    _isSaving = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      final sourceFile = File(sourcePath);
+      if (!sourceFile.existsSync()) {
+        throw Exception('Generated file not found');
+      }
+
+      final safeName = _sanitizeFileName(fileName);
+      if (safeName.isEmpty) {
+        throw Exception('Invalid file name');
+      }
+
+      final outputDirectory = await _resolveOutputDirectory();
+      final outputPath = '${outputDirectory.path}/$safeName.wav';
+
+      await sourceFile.copy(outputPath);
+      return outputPath;
+    } catch (error) {
+      errorMessage = 'Failed to save file: $error';
+      notifyListeners();
+      rethrow;
+    } finally {
+      _isSaving = false;
+      notifyListeners();
+    }
+  }
+
+  Future<Directory> _resolveOutputDirectory() async {
+    final external = await getExternalStorageDirectory();
+    if (external != null) {
+      return external;
+    }
+
+    return getApplicationDocumentsDirectory();
+  }
+
+  String _sanitizeFileName(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+
+    return trimmed.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
   }
 }
