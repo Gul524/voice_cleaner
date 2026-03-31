@@ -30,7 +30,7 @@ flutter:
     - assets/audio/sample.aac
   
 flutter_icons:
-  image_path: "assets/images/icon.png"
+  image_path: "assets/images/logo.png"
   android: true
   ios: true
   linux: true

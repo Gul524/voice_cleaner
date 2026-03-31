@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:voice_cleaner/models/cleaning_progress_state.dart';
 import 'package:voice_cleaner/services/voice_cleaner_service.dart';
@@ -16,6 +17,9 @@ class PlayerController extends ChangeNotifier {
        _cleanerService = cleanerService ?? VoiceCleanerService();
 
   final VoiceCleanerService _cleanerService;
+  static const MethodChannel _androidMediaStoreChannel = MethodChannel(
+    'voice_cleaner/media_store',
+  );
 
   String originalAudio;
   String? generatedAudio;
@@ -141,9 +145,24 @@ class PlayerController extends ChangeNotifier {
         throw Exception('Invalid file name');
       }
 
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        final uri = await _androidMediaStoreChannel
+            .invokeMethod<String>('saveAudioToDownloads', <String, dynamic>{
+              'sourcePath': sourcePath,
+              'displayName': '$safeName.wav',
+              'mimeType': 'audio/wav',
+              'subDirectory': 'VoiceCleaner',
+            });
+
+        if (uri == null || uri.trim().isEmpty) {
+          throw Exception('Failed to save audio to public Downloads folder');
+        }
+
+        return uri;
+      }
+
       final outputDirectory = await _resolveOutputDirectory();
       final outputPath = '${outputDirectory.path}/$safeName.wav';
-
       await sourceFile.copy(outputPath);
       return outputPath;
     } catch (error) {
