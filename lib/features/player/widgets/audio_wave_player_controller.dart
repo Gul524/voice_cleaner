@@ -5,7 +5,10 @@ import 'package:audio_waveforms/audio_waveforms.dart' as aw;
 import 'package:flutter/foundation.dart';
 
 class AudioWavePlayerController extends ChangeNotifier {
-  AudioWavePlayerController({required this.music});
+  AudioWavePlayerController({
+    required this.music,
+    required this.initialDuration,
+  });
 
   static const Set<String> _supportedAudioExtensions = {
     '.wav',
@@ -18,6 +21,7 @@ class AudioWavePlayerController extends ChangeNotifier {
   };
 
   final String music;
+  final Duration initialDuration;
   final aw.PlayerController playerController = aw.PlayerController()
     ..updateFrequency = aw.UpdateFrequency.high;
 
@@ -47,7 +51,7 @@ class AudioWavePlayerController extends ChangeNotifier {
     _isPlaying = false;
     _error = null;
     _currentPosition = Duration.zero;
-    _totalDuration = Duration.zero;
+    _totalDuration = initialDuration;
     notifyListeners();
 
     if (music.trim().isEmpty || !File(music).existsSync()) {
@@ -65,12 +69,17 @@ class AudioWavePlayerController extends ChangeNotifier {
     }
 
     try {
-      await playerController.preparePlayer(path: music, noOfSamples: 140);
+      await playerController.preparePlayer(
+        path: music,
+        noOfSamples: _resolveWaveSamplesCount(initialDuration),
+      );
 
       await playerController.setFinishMode(finishMode: aw.FinishMode.pause);
 
       final resolvedTotalMs = await _resolveTotalDurationMs();
-      _totalDuration = Duration(milliseconds: resolvedTotalMs);
+      if (resolvedTotalMs > 0) {
+        _totalDuration = Duration(milliseconds: resolvedTotalMs);
+      }
 
       _bindStreams();
     } catch (error) {
@@ -130,10 +139,15 @@ class AudioWavePlayerController extends ChangeNotifier {
     }
 
     if (playerController.playerState == aw.PlayerState.stopped) {
-      await playerController.preparePlayer(path: music, noOfSamples: 140);
+      await playerController.preparePlayer(
+        path: music,
+        noOfSamples: _resolveWaveSamplesCount(_totalDuration),
+      );
       await playerController.setFinishMode(finishMode: aw.FinishMode.pause);
       final resolvedTotalMs = await _resolveTotalDurationMs();
-      _totalDuration = Duration(milliseconds: resolvedTotalMs);
+      if (resolvedTotalMs > 0) {
+        _totalDuration = Duration(milliseconds: resolvedTotalMs);
+      }
     }
 
     await playerController.startPlayer();
@@ -169,6 +183,16 @@ class AudioWavePlayerController extends ChangeNotifier {
     }
 
     return 0;
+  }
+
+  int _resolveWaveSamplesCount(Duration duration) {
+    if (duration <= Duration.zero) {
+      return 140;
+    }
+
+    final seconds = duration.inSeconds;
+    final calculated = (seconds * 3).clamp(120, 420);
+    return calculated;
   }
 
   bool _isAudioFile(String path) {

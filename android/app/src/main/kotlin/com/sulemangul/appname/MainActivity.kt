@@ -1,4 +1,4 @@
-package com.example.voice_cleaner
+package com.sulemangul.appname
 
 import io.flutter.embedding.android.FlutterActivity
 

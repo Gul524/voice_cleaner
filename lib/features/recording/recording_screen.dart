@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:voice_cleaner/configs/routes.dart';
 import 'package:voice_cleaner/configs/theme.dart';
 import 'package:voice_cleaner/features/recording/recording_controller.dart';
+import 'package:voice_cleaner/models/audio_file_model.dart';
 
 class RecordingScreen extends StatefulWidget {
   const RecordingScreen({super.key});
@@ -46,7 +47,14 @@ class _RecordingScreenState extends State<RecordingScreen> {
       }
 
       messenger.showSnackBar(const SnackBar(content: Text('Recording saved')));
-      Navigator.pushNamed(context, AppRoutes.player, arguments: savedPath);
+      Navigator.pushNamed(
+        context,
+        AppRoutes.player,
+        arguments: AudioFileModel.fromPath(
+          savedPath,
+          duration: _controller.elapsed,
+        ),
+      );
     } catch (error) {
       if (!mounted) {
         return;

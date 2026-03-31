@@ -10,6 +10,18 @@ import 'package:flutter_nnnoiseless/src/rust/api/nnnoiseless.dart'
 import 'package:flutter_nnnoiseless/src/rust/frb_generated.dart';
 import 'package:path_provider/path_provider.dart';
 
+enum VoiceCleaningStage { preparing, convertingToWav, cleaning, completed }
+
+class VoiceCleaningProgress {
+  const VoiceCleaningProgress({required this.percentage, required this.stage});
+
+  final double percentage;
+  final VoiceCleaningStage stage;
+}
+
+typedef VoiceCleaningProgressCallback =
+    void Function(VoiceCleaningProgress progress);
+
 class VoiceCleanerService {
   VoiceCleanerService();
 
@@ -27,6 +39,8 @@ class VoiceCleanerService {
   Future<String> cleanAudio({
     required String inputAudioPath,
     String? outputAudioPath,
+    VoiceCleaningProgressCallback? onProgress,
+    bool Function()? isCancellationRequested,
   }) async {
     final tempDirectory = await getTemporaryDirectory();
 
@@ -39,9 +53,18 @@ class VoiceCleanerService {
       throw Exception('It is not audio file.');
     }
 
+    onProgress?.call(
+      const VoiceCleaningProgress(
+        percentage: 0,
+        stage: VoiceCleaningStage.preparing,
+      ),
+    );
+
     final wavInputPath = await _convertAudioToWavIfNeeded(
       inputAudioPath: inputFile.path,
       tempDirectoryPath: tempDirectory.path,
+      onProgress: onProgress,
+      isCancellationRequested: isCancellationRequested,
     );
 
     final resolvedOutputPath = _resolveOutputPath(
@@ -51,13 +74,22 @@ class VoiceCleanerService {
 
     await _initializeRust();
     try {
-      await noiseless_api.denoise(
-        inputPathStr: wavInputPath,
-        outputPathStr: resolvedOutputPath,
+      await _cleanWavWithChunkedDenoise(
+        wavInputPath: wavInputPath,
+        outputPath: resolvedOutputPath,
+        onProgress: onProgress,
+        isCancellationRequested: isCancellationRequested,
       );
     } catch (error) {
       throw Exception('Failed to clean audio: $error');
     }
+
+    onProgress?.call(
+      const VoiceCleaningProgress(
+        percentage: 100,
+        stage: VoiceCleaningStage.completed,
+      ),
+    );
 
     return resolvedOutputPath;
   }
@@ -116,16 +148,24 @@ class VoiceCleanerService {
   Future<String> _convertAudioToWavIfNeeded({
     required String inputAudioPath,
     required String tempDirectoryPath,
+    VoiceCleaningProgressCallback? onProgress,
+    bool Function()? isCancellationRequested,
   }) async {
+    if (isCancellationRequested?.call() ?? false) {
+      throw Exception('Cleaning cancelled by user');
+    }
+
     final inputFile = File(inputAudioPath);
     if (!inputFile.existsSync()) {
       throw Exception('Input audio file not found: $inputAudioPath');
     }
 
-    final lowerPath = inputFile.path.toLowerCase();
-    if (lowerPath.endsWith('.wav')) {
-      return inputFile.path;
-    }
+    onProgress?.call(
+      const VoiceCleaningProgress(
+        percentage: 0,
+        stage: VoiceCleaningStage.convertingToWav,
+      ),
+    );
 
     final convertedPath =
         '$tempDirectoryPath/converted_${DateTime.now().millisecondsSinceEpoch}.wav';
@@ -143,7 +183,137 @@ class VoiceCleanerService {
       throw Exception('Failed to convert audio to wav. ${logs ?? ''}'.trim());
     }
 
+    if (isCancellationRequested?.call() ?? false) {
+      throw Exception('Cleaning cancelled by user');
+    }
+
     return convertedPath;
+  }
+
+  Future<void> _cleanWavWithChunkedDenoise({
+    required String wavInputPath,
+    required String outputPath,
+    VoiceCleaningProgressCallback? onProgress,
+    bool Function()? isCancellationRequested,
+  }) async {
+    final wavBytes = await File(wavInputPath).readAsBytes();
+    final wavData = _extractWavPcmData(wavBytes);
+
+    final frameSize = wavData.numChannels * 2; // pcm_s16le => 2 bytes/sample
+    final totalFrames = wavData.pcmData.length ~/ frameSize;
+    if (totalFrames <= 0) {
+      throw Exception('Input wav contains no audio frames');
+    }
+
+    const chunkFrames = 4800; // ~100ms at 48kHz
+    final chunkByteSize = chunkFrames * frameSize;
+    var processedFrames = 0;
+    final cleanedPcmBuffer = BytesBuilder(copy: false);
+
+    onProgress?.call(
+      const VoiceCleaningProgress(
+        percentage: 0,
+        stage: VoiceCleaningStage.cleaning,
+      ),
+    );
+
+    for (
+      var offset = 0;
+      offset < wavData.pcmData.length;
+      offset += chunkByteSize
+    ) {
+      if (isCancellationRequested?.call() ?? false) {
+        throw Exception('Cleaning cancelled by user');
+      }
+
+      final end = (offset + chunkByteSize < wavData.pcmData.length)
+          ? offset + chunkByteSize
+          : wavData.pcmData.length;
+
+      final inputChunk = Uint8List.sublistView(wavData.pcmData, offset, end);
+      final cleanedChunk = await noiseless_api.denoiseChunk(
+        input: inputChunk,
+        inputSampleRate: wavData.sampleRate,
+      );
+      cleanedPcmBuffer.add(cleanedChunk);
+
+      processedFrames += (end - offset) ~/ frameSize;
+      final percentage = (processedFrames / totalFrames) * 100;
+      onProgress?.call(
+        VoiceCleaningProgress(
+          percentage: percentage.clamp(0, 100),
+          stage: VoiceCleaningStage.cleaning,
+        ),
+      );
+    }
+
+    await _writePcm16WavFile(
+      outputPath: outputPath,
+      pcmData: cleanedPcmBuffer.toBytes(),
+      sampleRate: wavData.sampleRate,
+      numChannels: wavData.numChannels,
+    );
+  }
+
+  _WavPcmData _extractWavPcmData(Uint8List wavBytes) {
+    if (wavBytes.length < 44) {
+      throw Exception('Invalid wav file: file too small');
+    }
+
+    if (String.fromCharCodes(wavBytes.sublist(0, 4)) != 'RIFF' ||
+        String.fromCharCodes(wavBytes.sublist(8, 12)) != 'WAVE') {
+      throw Exception('Invalid wav file: missing RIFF/WAVE header');
+    }
+
+    final dataView = ByteData.sublistView(wavBytes);
+    var cursor = 12;
+    var sampleRate = 48000;
+    var numChannels = 1;
+    var bitsPerSample = 16;
+    var dataOffset = -1;
+    var dataSize = -1;
+
+    while (cursor + 8 <= wavBytes.length) {
+      final chunkId = String.fromCharCodes(
+        wavBytes.sublist(cursor, cursor + 4),
+      );
+      final chunkSize = dataView.getUint32(cursor + 4, Endian.little);
+      final chunkDataStart = cursor + 8;
+      final chunkDataEnd = chunkDataStart + chunkSize;
+
+      if (chunkDataEnd > wavBytes.length) {
+        break;
+      }
+
+      if (chunkId == 'fmt ' && chunkSize >= 16) {
+        numChannels = dataView.getUint16(chunkDataStart + 2, Endian.little);
+        sampleRate = dataView.getUint32(chunkDataStart + 4, Endian.little);
+        bitsPerSample = dataView.getUint16(chunkDataStart + 14, Endian.little);
+      } else if (chunkId == 'data') {
+        dataOffset = chunkDataStart;
+        dataSize = chunkSize;
+        break;
+      }
+
+      cursor = chunkDataEnd + (chunkSize.isOdd ? 1 : 0);
+    }
+
+    if (dataOffset < 0 || dataSize <= 0) {
+      throw Exception('Invalid wav file: data chunk not found');
+    }
+
+    if (bitsPerSample != 16) {
+      throw Exception('Unsupported wav format: only 16-bit PCM is supported');
+    }
+
+    final pcmEnd = dataOffset + dataSize;
+    final pcmData = Uint8List.sublistView(wavBytes, dataOffset, pcmEnd);
+
+    return _WavPcmData(
+      pcmData: pcmData,
+      sampleRate: sampleRate,
+      numChannels: numChannels,
+    );
   }
 
   String _escapePath(String path) => path.replaceAll('"', r'\"');
@@ -213,4 +383,16 @@ class VoiceCleanerService {
       ...pcmData,
     ], flush: true);
   }
+}
+
+class _WavPcmData {
+  const _WavPcmData({
+    required this.pcmData,
+    required this.sampleRate,
+    required this.numChannels,
+  });
+
+  final Uint8List pcmData;
+  final int sampleRate;
+  final int numChannels;
 }

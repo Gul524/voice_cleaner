@@ -4,9 +4,14 @@ import 'package:voice_cleaner/configs/theme.dart';
 import 'package:voice_cleaner/features/player/widgets/audio_wave_player_controller.dart';
 
 class AudioWavePlayer extends StatefulWidget {
-  const AudioWavePlayer({super.key, required this.music});
+  const AudioWavePlayer({
+    super.key,
+    required this.music,
+    this.initialDuration = Duration.zero,
+  });
 
   final String music;
+  final Duration initialDuration;
 
   @override
   State<AudioWavePlayer> createState() => _AudioWavePlayerState();
@@ -18,7 +23,10 @@ class _AudioWavePlayerState extends State<AudioWavePlayer> {
   @override
   void initState() {
     super.initState();
-    _controller = AudioWavePlayerController(music: widget.music);
+    _controller = AudioWavePlayerController(
+      music: widget.music,
+      initialDuration: widget.initialDuration,
+    );
     _controller.addListener(_onControllerChanged);
     _controller.initialize();
   }
@@ -26,10 +34,14 @@ class _AudioWavePlayerState extends State<AudioWavePlayer> {
   @override
   void didUpdateWidget(covariant AudioWavePlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.music != widget.music) {
+    if (oldWidget.music != widget.music ||
+        oldWidget.initialDuration != widget.initialDuration) {
       _controller.removeListener(_onControllerChanged);
       _controller.dispose();
-      _controller = AudioWavePlayerController(music: widget.music);
+      _controller = AudioWavePlayerController(
+        music: widget.music,
+        initialDuration: widget.initialDuration,
+      );
       _controller.addListener(_onControllerChanged);
       _controller.initialize();
     }

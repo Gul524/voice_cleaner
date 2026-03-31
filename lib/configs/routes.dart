@@ -3,6 +3,7 @@ import 'package:voice_cleaner/features/splash/splash_screen.dart';
 import 'package:voice_cleaner/features/home/home_screen.dart';
 import 'package:voice_cleaner/features/player/player_screen.dart';
 import 'package:voice_cleaner/features/recording/recording_screen.dart';
+import 'package:voice_cleaner/models/audio_file_model.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -21,9 +22,18 @@ class AppRoutes {
       case recording:
         return MaterialPageRoute(builder: (_) => const RecordingScreen());
       case player:
-        final sourceAudioPath = settings.arguments as String? ?? '';
+        final args = settings.arguments;
+        final sourceAudio = switch (args) {
+          AudioFileModel model => model,
+          String path => AudioFileModel.fromPath(path),
+          _ => const AudioFileModel(
+            path: '',
+            name: '',
+            duration: Duration.zero,
+          ),
+        };
         return MaterialPageRoute(
-          builder: (_) => PlayerScreen(sourceAudioPath: sourceAudioPath),
+          builder: (_) => PlayerScreen(sourceAudio: sourceAudio),
         );
       default:
         return MaterialPageRoute(

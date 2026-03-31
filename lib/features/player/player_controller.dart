@@ -2,7 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:voice_cleaner/models/cleaning_progress_state.dart';
 import 'package:voice_cleaner/services/voice_cleaner_service.dart';
+
+typedef ProgressCallback =
+    void Function(double percentage, CleaningStage stage);
 
 class PlayerController extends ChangeNotifier {
   PlayerController({
@@ -23,7 +27,24 @@ class PlayerController extends ChangeNotifier {
   bool _isSaving = false;
   bool get isSaving => _isSaving;
 
+  bool _cancellationRequested = false;
+  ProgressCallback? _onProgressChanged;
+
+  /// Set the progress callback to be called during audio generation
+  void setProgressCallback(ProgressCallback callback) {
+    _onProgressChanged = callback;
+  }
+
+  /// Request cancellation of the current audio generation
+  void requestCancellation() {
+    _cancellationRequested = true;
+  }
+
+  /// Check if cancellation has been requested
+  bool get isCancellationRequested => _cancellationRequested;
+
   Future<void> generateAudio() async {
+    _cancellationRequested = false;
     await _generateFromSource(originalAudio);
   }
 
@@ -37,6 +58,7 @@ class PlayerController extends ChangeNotifier {
 
     originalAudio = currentGenerated;
     notifyListeners();
+    _cancellationRequested = false;
     await _generateFromSource(originalAudio);
   }
 
@@ -54,14 +76,47 @@ class PlayerController extends ChangeNotifier {
     try {
       generatedAudio = await _cleanerService.cleanAudio(
         inputAudioPath: sourcePath,
+        onProgress: (serviceProgress) {
+          _notifyProgress(
+            serviceProgress.percentage,
+            _mapServiceStageToUiStage(serviceProgress.stage),
+          );
+        },
+        isCancellationRequested: () => _cancellationRequested,
       );
+
+      if (_cancellationRequested) {
+        throw Exception('Cleaning cancelled by user');
+      }
+
       notifyListeners();
     } catch (error) {
-      errorMessage = 'Failed to generate clean audio: $error';
+      if (_cancellationRequested) {
+        errorMessage = 'Cleaning cancelled by user';
+      } else {
+        errorMessage = 'Failed to generate clean audio: $error';
+      }
       notifyListeners();
     } finally {
       _isGenerating = false;
       notifyListeners();
+    }
+  }
+
+  void _notifyProgress(double percentage, CleaningStage stage) {
+    _onProgressChanged?.call(percentage, stage);
+  }
+
+  CleaningStage _mapServiceStageToUiStage(VoiceCleaningStage stage) {
+    switch (stage) {
+      case VoiceCleaningStage.preparing:
+        return CleaningStage.preparing;
+      case VoiceCleaningStage.convertingToWav:
+        return CleaningStage.convertingToWav;
+      case VoiceCleaningStage.cleaning:
+        return CleaningStage.cleaning;
+      case VoiceCleaningStage.completed:
+        return CleaningStage.completed;
     }
   }
 
