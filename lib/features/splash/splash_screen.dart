@@ -68,8 +68,8 @@ class _SplashScreenState extends State<SplashScreen>
                 child: FadeTransition(
                   opacity: _opacityAnimation,
                   child: Image.asset(
-                    AppImages.logoWithoutBG,
-                    width: 200,
+                    AppImages.logoWithoutBG2,
+                    width: 250,
                     height: 200,
                   ),
                 ),
@@ -77,7 +77,7 @@ class _SplashScreenState extends State<SplashScreen>
               Text(
                 'pure voice',
                 style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                  color: Colors.white,
+                  color: const Color.fromARGB(255, 17, 13, 13),
                   fontWeight: FontWeight.bold,
                 ),
               ),

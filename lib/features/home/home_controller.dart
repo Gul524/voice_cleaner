@@ -10,6 +10,8 @@ import 'package:voice_cleaner/models/audio_file_model.dart';
 class HomeController extends ChangeNotifier {
   HomeController();
 
+  static const int _maxRecentAudios = 20;
+
   List<String> recentsAudios = <String>[];
   String? currentPickedFile;
   AudioFileModel? currentPickedAudio;
@@ -22,31 +24,71 @@ class HomeController extends ChangeNotifier {
 
   Future<void> loadRecentsAudios() async {
     try {
-      final tempDirectory = await getTemporaryDirectory();
-      final directory = Directory(tempDirectory.path);
+      final directories = await _resolveRecentAudioDirectories();
+      final collected = <File>[];
+      final seenPaths = <String>{};
 
-      if (!directory.existsSync()) {
-        recentsAudios = <String>[];
-        notifyListeners();
-        return;
+      for (final directory in directories) {
+        if (!directory.existsSync()) {
+          continue;
+        }
+
+        final files = directory
+            .listSync(recursive: true, followLinks: false)
+            .whereType<File>()
+            .where((file) {
+              final path = file.path;
+              return _isSupportedAudioPath(path) && seenPaths.add(path);
+            });
+
+        collected.addAll(files);
       }
 
-      final files = directory.listSync().whereType<File>().where((file) {
-        final path = file.path.toLowerCase();
-        return path.endsWith('.wav') ||
-            path.endsWith('.m4a') ||
-            path.endsWith('.mp3');
-      }).toList();
+      collected.sort((a, b) => _safeModified(b).compareTo(_safeModified(a)));
 
-      files.sort(
-        (a, b) => b.statSync().modified.compareTo(a.statSync().modified),
-      );
-
-      recentsAudios = files.map((file) => file.path).toList();
+      recentsAudios = collected
+          .take(_maxRecentAudios)
+          .map((file) => file.path)
+          .toList();
       notifyListeners();
     } catch (error) {
       errorMessage = 'Failed to load recent audios: $error';
       notifyListeners();
+    }
+  }
+
+  Future<List<Directory>> _resolveRecentAudioDirectories() async {
+    final directories = <Directory>[];
+
+    final tempDirectory = await getTemporaryDirectory();
+    directories.add(tempDirectory);
+
+    final documentsDirectory = await getApplicationDocumentsDirectory();
+    directories.add(documentsDirectory);
+
+    final externalDirectory = await getExternalStorageDirectory();
+    if (externalDirectory != null) {
+      directories.add(externalDirectory);
+    }
+
+    return directories;
+  }
+
+  bool _isSupportedAudioPath(String path) {
+    final lowerPath = path.toLowerCase();
+    return lowerPath.endsWith('.wav') ||
+        lowerPath.endsWith('.m4a') ||
+        lowerPath.endsWith('.mp3') ||
+        lowerPath.endsWith('.aac') ||
+        lowerPath.endsWith('.flac') ||
+        lowerPath.endsWith('.ogg');
+  }
+
+  DateTime _safeModified(File file) {
+    try {
+      return file.statSync().modified;
+    } catch (_) {
+      return DateTime.fromMillisecondsSinceEpoch(0);
     }
   }
 

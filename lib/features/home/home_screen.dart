@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:voice_cleaner/configs/theme.dart';
 import 'package:voice_cleaner/configs/routes.dart';
 import 'package:voice_cleaner/features/home/home_controller.dart';
+import 'package:voice_cleaner/models/audio_file_model.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -14,17 +17,50 @@ class _HomeScreenState extends State<HomeScreen> {
   final HomeController _homeController = HomeController();
 
   @override
+  void initState() {
+    super.initState();
+    _homeController.addListener(_onHomeControllerChanged);
+    _homeController.loadRecentsAudios();
+  }
+
+  void _onHomeControllerChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
+  }
+
+  @override
   void dispose() {
+    _homeController.removeListener(_onHomeControllerChanged);
     _homeController.dispose();
     super.dispose();
   }
 
-  final List<Map<String, String>> audioList = [
-    {'name': 'Recording 001', 'date': '2 hours ago', 'duration': '2:45'},
-    {'name': 'Meeting Notes', 'date': '1 day ago', 'duration': '15:30'},
-    {'name': 'Interview', 'date': '2 days ago', 'duration': '45:20'},
-    {'name': 'Podcast', 'date': '3 days ago', 'duration': '58:15'},
-  ];
+  String _extractFileName(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    final chunks = normalized.split('/');
+    return chunks.isEmpty ? path : chunks.last;
+  }
+
+  String _formatLastModified(String path) {
+    try {
+      final modifiedAt = File(path).lastModifiedSync();
+      final diff = DateTime.now().difference(modifiedAt);
+      if (diff.inMinutes < 1) {
+        return 'Just now';
+      }
+      if (diff.inHours < 1) {
+        return '${diff.inMinutes}m ago';
+      }
+      if (diff.inDays < 1) {
+        return '${diff.inHours}h ago';
+      }
+      return '${diff.inDays}d ago';
+    } catch (_) {
+      return 'Saved audio';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,19 +89,19 @@ class _HomeScreenState extends State<HomeScreen> {
                 Row(
                   children: [
                     Text(
-                      'Noise Reducer',
+                      'Noise Remover',
                       style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
                         color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
-                    Spacer(),
-                    Icon(
-                      Icons.settings_outlined,
-                      size: 28,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
+                    // Spacer(),
+                    // Icon(
+                    //   Icons.settings_outlined,
+                    //   size: 28,
+                    //   color: Theme.of(context).colorScheme.onSurface,
+                    // ),
                   ],
                 ),
                 const SizedBox(height: 24),
@@ -148,6 +184,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             );
                           }
+
+                          await _homeController.loadRecentsAudios();
                         },
                       ),
                     ),
@@ -157,8 +195,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         context,
                         icon: Icons.mic,
                         label: 'Record Audio',
-                        onTap: () {
-                          Navigator.pushNamed(context, AppRoutes.recording);
+                        onTap: () async {
+                          await Navigator.pushNamed(
+                            context,
+                            AppRoutes.recording,
+                          );
+                          if (!mounted) {
+                            return;
+                          }
+                          await _homeController.loadRecentsAudios();
                         },
                       ),
                     ),
@@ -171,79 +216,103 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 16),
-                ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: audioList.length,
-                  itemBuilder: (context, index) {
-                    final audio = audioList[index];
-                    final audioDemoPath = 'assets/audio/${audio['name']}.wav';
-                    return GestureDetector(
-                      onTap: () => Navigator.pushNamed(
-                        context,
-                        AppRoutes.player,
-                        arguments: audioDemoPath,
-                      ),
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? Colors.grey.shade800
-                              : Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                color: AppTheme.primary.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(8),
+                if (_homeController.recentsAudios.isEmpty)
+                  Text(
+                    'No recent audio files yet',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  )
+                else
+                  ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _homeController.recentsAudios.length,
+                    itemBuilder: (context, index) {
+                      final audioPath = _homeController.recentsAudios[index];
+                      final audioTitle = _extractFileName(audioPath);
+                      return GestureDetector(
+                        onTap: () async {
+                          await Navigator.pushNamed(
+                            context,
+                            AppRoutes.player,
+                            arguments: AudioFileModel.fromPath(audioPath),
+                          );
+                          if (!mounted) {
+                            return;
+                          }
+                          await _homeController.loadRecentsAudios();
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.grey.shade800
+                                : Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.primary.withValues(
+                                    alpha: 0.2,
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Icon(
+                                  Icons.music_note,
+                                  color: AppTheme.primary,
+                                ),
                               ),
-                              child: const Icon(
-                                Icons.music_note,
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      audioTitle,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _formatLastModified(audioPath),
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.play_circle),
+                                onPressed: () async {
+                                  await Navigator.pushNamed(
+                                    context,
+                                    AppRoutes.player,
+                                    arguments: AudioFileModel.fromPath(
+                                      audioPath,
+                                    ),
+                                  );
+                                  if (!mounted) {
+                                    return;
+                                  }
+                                  await _homeController.loadRecentsAudios();
+                                },
                                 color: AppTheme.primary,
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    audio['name']!,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(fontWeight: FontWeight.bold),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '${audio['date']} • ${audio['duration']}',
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodySmall,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.play_circle),
-                              onPressed: () => Navigator.pushNamed(
-                                context,
-                                AppRoutes.player,
-                                arguments: audioDemoPath,
-                              ),
-                              color: AppTheme.primary,
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                ),
+                      );
+                    },
+                  ),
               ],
             ),
           ),
