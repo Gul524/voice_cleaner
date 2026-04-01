@@ -167,12 +167,11 @@ class _RecordingScreenState extends State<RecordingScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Spacer(),
-                const SizedBox(height: 8),
+                // const Spacer(),
+                // const SizedBox(height: 8),
 
-                Icon(Icons.graphic_eq, color: AppTheme.primary, size: 100),
-
-                const SizedBox(height: 8),
+                // Icon(Icons.graphic_eq, color: AppTheme.primary, size: 100),
+                // const SizedBox(height: 8),
                 const Spacer(),
                 const SizedBox(height: 8),
 
