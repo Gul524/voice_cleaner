@@ -17,6 +17,7 @@ dependencies:
   flutter_nnnoiseless: ^1.0.1
   path_provider: ^2.1.5
   record: ^6.2.0
+  share_plus: ^11.0.0
 
 dev_dependencies:
   flutter_test:

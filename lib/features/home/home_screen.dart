@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:voice_cleaner/configs/theme.dart';
 import 'package:voice_cleaner/configs/routes.dart';
 import 'package:voice_cleaner/features/home/home_controller.dart';
@@ -59,6 +60,84 @@ class _HomeScreenState extends State<HomeScreen> {
       return '${diff.inDays}d ago';
     } catch (_) {
       return 'Saved audio';
+    }
+  }
+
+  Future<bool> _confirmDeleteAudio(String audioTitle) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete audio?'),
+        content: Text('Are you sure you want to delete "$audioTitle"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    return shouldDelete ?? false;
+  }
+
+  Future<void> _handleDeleteAudio({
+    required String audioPath,
+    required String audioTitle,
+  }) async {
+    final shouldDelete = await _confirmDeleteAudio(audioTitle);
+    if (!shouldDelete || !mounted) {
+      return;
+    }
+
+    await _homeController.deleteAudio(audioPath);
+    if (!mounted) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    if (_homeController.errorMessage != null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(_homeController.errorMessage!)),
+      );
+      return;
+    }
+
+    messenger.showSnackBar(SnackBar(content: Text('Deleted: $audioTitle')));
+  }
+
+  Future<void> _handleShareAudio({
+    required String audioPath,
+    required String audioTitle,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final audioFile = File(audioPath);
+      if (!audioFile.existsSync()) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Audio file not found')),
+        );
+        await _homeController.loadRecentsAudios();
+        return;
+      }
+
+      await Share.shareXFiles(
+        [XFile(audioPath)],
+        subject: audioTitle,
+        text: 'Shared from Voice Cleaner',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        SnackBar(content: Text('Failed to share audio: $error')),
+      );
     }
   }
 
@@ -290,22 +369,43 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ],
                                 ),
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.play_circle),
-                                onPressed: () async {
-                                  await Navigator.pushNamed(
-                                    context,
-                                    AppRoutes.player,
-                                    arguments: AudioFileModel.fromPath(
-                                      audioPath,
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.share_outlined),
+                                    onPressed: () => _handleShareAudio(
+                                      audioPath: audioPath,
+                                      audioTitle: audioTitle,
                                     ),
-                                  );
-                                  if (!mounted) {
-                                    return;
-                                  }
-                                  await _homeController.loadRecentsAudios();
-                                },
-                                color: AppTheme.primary,
+                                    tooltip: 'Share audio',
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline),
+                                    onPressed: () => _handleDeleteAudio(
+                                      audioPath: audioPath,
+                                      audioTitle: audioTitle,
+                                    ),
+                                    tooltip: 'Delete audio',
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.play_circle),
+                                    onPressed: () async {
+                                      await Navigator.pushNamed(
+                                        context,
+                                        AppRoutes.player,
+                                        arguments: AudioFileModel.fromPath(
+                                          audioPath,
+                                        ),
+                                      );
+                                      if (!mounted) {
+                                        return;
+                                      }
+                                      await _homeController.loadRecentsAudios();
+                                    },
+                                    color: AppTheme.primary,
+                                  ),
+                                ],
                               ),
                             ],
                           ),
